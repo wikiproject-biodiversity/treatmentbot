@@ -13,23 +13,21 @@ else:
 
 login = wdi_login.WDLogin(WDUSER, WDPASS)
 
-treatmentURIBase = "https://raw.githubusercontent.com/plazi/treatments-rdf/main/"
+treatmentURIBase = "https://raw.githubusercontent.com/plazi/treatments-rdf/main/data/"
 treatmentURIs = [
-"data/55/7C/03/557C03465E60FF9CFF7FFCE27C52F7DE.ttl",
-"data/55/7C/03/557C03465E62FF9EFF7FFF237C79FCEA.ttl",
-"data/55/7C/03/557C03465E66FF9BFF7FFDBB7DE7F7DB.ttl",
-"data/55/7C/03/557C03465E67FF84FF7FF98478D6FB72.ttl",
-"data/55/7C/03/557C03465E6FFF92FF7FFF497A17FC4D.ttl",
-"data/55/7C/03/557C03465E6FFF9DFF7FF9257CECFCD9.ttl",
-"data/55/7C/03/557C03465E70FF8FFF7FFE937A3BFDB2.ttl",
-"data/55/7C/03/557C03465E72FF89FF7FFDCF7C16F8F4.ttl",
-"data/55/7C/03/557C03465E74FF8AFF7FF88C783BFE0B.ttl",
-"data/55/7C/03/557C03465E79FF81FF7FFB0F799DFC26.ttl",
-"data/55/7C/03/557C03465E7CFF83FF7FFC437B8EFC93.ttl",
-"data/55/7C/03/557C03465E7EFF8DFF7FFC2F7B06FEF6.ttl"
+"03/BD/87/03BD87E0FFB340296E07C329B68B1336.ttl",
+"03/BD/87/03BD87E0FFB5402E6D4AC677B42F11D5.ttl",
+"03/BD/87/03BD87E0FFB5402F6D4AC221B1E910DD.ttl",
+"03/BD/87/03BD87E0FFB5402F6E07C744B185140C.ttl",
+"03/BD/87/03BD87E0FFB6402F6D4AC537B47613BB.ttl",
+"03/BD/87/03BD87E0FFB7402D6E07C5C0B1BE104E.ttl",
+"03/BD/87/03BD87E0FFB940226D4AC7EDB1351112.ttl"
 ]
 
 for treatmentURI in treatmentURIs:
+    print(
+        "Processing treatment: " + treatmentURIBase + treatmentURI
+    )
     try:
             treatmentURI = treatmentURIBase + treatmentURI
             treatment = Graph()
@@ -84,7 +82,7 @@ for treatmentURI in treatmentURIs:
                 treatmentItem.set_label(title, lang="en")
                 treatmentItem.set_description("taxonomic treatment", lang="en")
             else:
-                treatmentItem = wdi_core.WDItemEngine(wd_item_id=wdTreatment["results"]["bindings"][0]["treatment"]["value"].replace("http://www.wikidata.org/entity/",""), data=treatmentstatements)
+                treatmentItem = wdi_core.WDItemEngine(wd_item_id=wdTreatment["results"]["bindings"][0]["treatment"]["value"].replace("http://www.wikidata.org/entity/",""), data=treatmentstatements, keep_good_ref_statements=True)
 
             treatment_qid = treatmentItem.write(login)
 
@@ -181,7 +179,7 @@ for treatmentURI in treatmentURIs:
                 taxonstatements.append(wdi_core.WDItemID(treatment_qid, prop_nr="P10594", references=[copy.deepcopy(treatment_reference)]))
 
             if len(taxonQid)>0:
-                taxon_item = wdi_core.WDItemEngine(wd_item_id=taxonQid[0]["taxon"]["value"].replace("http://www.wikidata.org/entity/",""), data=taxonstatements)
+                taxon_item = wdi_core.WDItemEngine(wd_item_id=taxonQid[0]["taxon"]["value"].replace("http://www.wikidata.org/entity/",""), data=taxonstatements, keep_good_ref_statements=True)
             else:
                 taxon_item = wdi_core.WDItemEngine(new_item=True, data=taxonstatements)
                 taxon_item.set_label(taxonname, lang="en")
@@ -195,4 +193,5 @@ for treatmentURI in treatmentURIs:
             item.write(login)
 
     except:
+        print("error", plaziuri)
         continue
