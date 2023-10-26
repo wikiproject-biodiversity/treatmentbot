@@ -1,0 +1,23 @@
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX trt: <http://plazi.org/vocab/treatment#>
+prefix fabio: <http://purl.org/spar/fabio/>
+prefix : <http://example.org/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX dwc: <http://rs.tdwg.org/dwc/terms/>
+PREFIX dwcFP: <http://filteredpush.org/ontologies/oa/dwcFP#>
+
+:treatment {
+    rdf:type [trt:Treatment] ;
+    trt:definesTaxonConcept @:name ;
+    trt:publishedIn @:publication ;
+}
+
+:name {
+    rdf:type [dwcFP:TaxonName dwcFP:TaxonConcept] ;
+    trt:hasParentName @:name? ;
+    dwc:rank xsd:string ;
+}
+
+:publication {
+    rdf:type [fabio:JournalArticle] ;
+}
