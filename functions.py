@@ -8,6 +8,32 @@ import traceback
 import os
 import logging
 from pyshex import ShExEvaluator
+import config
+
+def ensure_qid(value_or_dict):
+    """Ensure the input is a string QID, even if wrapped in a dict with a 'qid' key."""
+    return value_or_dict.get("qid") if isinstance(value_or_dict, dict) else value_or_dict
+
+def add_taxon_name(taxon_item, taxon_name, publication_qid):
+    existing_taxon_names = [s.getTarget() for s in taxon_item.statements if s.getPropNr() == 'P225']
+    if taxon_name not in existing_taxon_names:
+        reference = wdi_core.WDItemID(value=publication_qid, prop_nr='P248', is_reference=True)  # Assuming 'P248' is the property for 'stated in'
+        statement = wdi_core.WDString(value=taxon_name, prop_nr='P225', references=[reference])
+        taxon_item.update(data=[statement])
+
+def update_or_create_taxon(taxon_qid, taxon_name, publication_qid):
+    login_instance = setup_wikidata_login()
+    taxon_item = wdi_core.WDItemEngine(wd_item_id=taxon_qid) if taxon_qid else wdi_core.WDItemEngine()
+
+    add_taxon_name(taxon_item, taxon_name, publication_qid)
+
+    taxon_item.write(login_instance)
+
+def add_publication(doi, qid):
+    config.publication_QIDs[doi] = qid
+
+def get_publication(doi):
+    return config.publication_QIDs.get(doi)
 
 
 def setup_wikidata_login():
@@ -24,6 +50,7 @@ def fetch_treatment_data(url):
     return treatmentURIs
 
 def process_treatments(treatmentURIs, login, ghurl, headers, treatmentURIBase, token):
+    plazi_qid_map = {}
     with open("treatment.shex", 'r') as schema_file:
         shex_schema = schema_file.read()
 
@@ -82,26 +109,29 @@ def process_treatments(treatmentURIs, login, ghurl, headers, treatmentURIBase, t
                                                                                                                        20:]
                 print(DOI)
 
-            qid = wdi_helpers.PublicationHelper(DOI, id_type="doi", source="crossref").get_or_create(login)
-            publication_qid = qid[0]
-            if publication_qid == None:
-                publication_qid = create_article_item(plazidashuuid, treatment, None, login, ghurl, headers, token)
-            if publication_qid["qid"] == None:
-                ghtitle = treatmentURIBase + treatmentURI + ' cannot be added to Wikidata'
-                ghbody = "The treament: "+treatmentURIBase + treatmentURI + " can currently not be added to Wikidata. Due to an issue ({publication_qid['ghi']}), there is no publication in Wikidata to cite. This would create a wikidata item for a treatment without citations."
-                data = {
-                    'title':  ghtitle,
-                    'body': ghbody,
-                }
-                response = requests.post(ghurl, headers=headers, json=data)
+            if get_publication(DOI):
+                publication_qid = get_publication(DOI)
+            else:
+                qid = wdi_helpers.PublicationHelper(DOI, id_type="doi", source="crossref").get_or_create(login)
+                publication_qid = qid[0]
+                if publication_qid == None:
+                    publication_qid = create_article_item(plazidashuuid, treatment, None, login, ghurl, headers, token)
+                if publication_qid == None:
+                    ghtitle = treatmentURIBase + treatmentURI + ' cannot be added to Wikidata'
+                    ghbody = "The treament: "+treatmentURIBase + treatmentURI + " can currently not be added to Wikidata. Due to an issue ({publication_qid['ghi']}), there is no publication in Wikidata to cite. This would create a wikidata item for a treatment without citations."
+                    data = {
+                        'title':  ghtitle,
+                        'body': ghbody,
+                    }
+                    response = requests.post(ghurl, headers=headers, json=data)
 
-                if response.status_code == 201:
-                    print(f"Issue created: {response.json()['html_url']}")
-                else:
-                    print(f"Error {response.status_code}: {response.text}")
-                continue
-
-            print(publication_qid)
+                    if response.status_code == 201:
+                        print(f"Issue created: {response.json()['html_url']}")
+                    else:
+                        print(f"Error {response.status_code}: {response.text}")
+                    continue
+                add_publication(DOI, publication_qid)
+                print(publication_qid)
 
             # Treatment Item
             treatmentstatements = []
@@ -132,16 +162,19 @@ def process_treatments(treatmentURIs, login, ghurl, headers, treatmentURIBase, t
                 treatmentItem = wdi_core.WDItemEngine(new_item=True, data=treatmentstatements)
                 treatmentItem.set_label(title, lang="en")
                 treatmentItem.set_description("taxonomic treatment", lang="en")
+                treatment_qid = treatmentItem.write(login)
+                plazi_qid_map[plaziuri] = {"treatment_qid": treatment_qid}
             else:
                 treatmentItem = wdi_core.WDItemEngine(
                     wd_item_id=wdTreatment["results"]["bindings"][0]["treatment"]["value"].replace(
                         "http://www.wikidata.org/entity/", ""), data=treatmentstatements, keep_good_ref_statements=True)
+                treatment_qid = treatmentItem.wd_item_id
+                plazi_qid_map[plaziuri] = {"treatment_qid": treatment_qid}
 
-            treatment_qid = treatmentItem.write(login)
-
+            publication_qid_val = ensure_qid(publication_qid)
             ## taxon item
             taxonstatements = []
-            publication_reference = [wdi_core.WDItemID(publication_qid['qid'], prop_nr="P248", is_reference=True)]
+            publication_reference = [wdi_core.WDItemID(publication_qid_val, prop_nr="P248", is_reference=True)]
             taxonstatements.append(
                 wdi_core.WDItemID("Q16521", prop_nr="P31", references=[copy.deepcopy(publication_reference)]))
             taxonrankdict = dict()
@@ -163,7 +196,7 @@ def process_treatments(treatmentURIs, login, ghurl, headers, treatmentURIBase, t
                        ?taxonName dwc:rank ?rank ;
                                   trt:hasParentName ?parentTaxonname .
                        ?parentTaxonname dwc:rank ?parentRank .
-                       OPTiONAL {{?taxon dwc:authorityYear ?year .}}
+                       OPTIONAL {{?taxon dwc:authorityYear ?year .}}
                     }}
                     """
             qres = treatment.query(query)
@@ -252,11 +285,14 @@ def process_treatments(treatmentURIs, login, ghurl, headers, treatmentURIBase, t
                 taxon_item.set_description("taxon", lang="en")
 
             taxon_qid = taxon_item.write(login)
+            plazi_qid_map[plaziuri]["taxon_qid"] = taxon_qid
+            plazi_qid_map[plaziuri]["publication_qid"] = ensure_qid(publication_qid)
 
             statements = [
                 wdi_core.WDItemID(value=taxon_qid, prop_nr="P921", references=[copy.deepcopy(treatment_reference)])]
-            item = wdi_core.WDItemEngine(wd_item_id=publication_qid['qid'], data=statements, keep_good_ref_statements=True)
+            item = wdi_core.WDItemEngine(wd_item_id=publication_qid_val, data=statements, keep_good_ref_statements=True)
             print(item.write(login))
+
 
 
         except Exception as e:
@@ -270,6 +306,7 @@ def process_treatments(treatmentURIs, login, ghurl, headers, treatmentURIBase, t
             traceback_str = traceback.format_exc()
 
             continue
+    return plazi_qid_map
 
 def extract_journal_details(g):
     # Extract the snippet with the desired predicate
@@ -283,7 +320,14 @@ def extract_journal_details(g):
 
     # Access specific elements if the desired subject is found
     if subject_of_interest:
-        creators = [str(author) for author in g.objects(subject_of_interest, URIRef("http://purl.org/dc/elements/1.1/creator"))]
+        creator_literals = [str(author) for author in
+                            g.objects(subject_of_interest, URIRef("http://purl.org/dc/elements/1.1/creator"))]
+        creators = []
+
+        for literal in creator_literals:
+            # Split on semicolon to separate multiple authors
+            split_authors = [a.strip() for a in literal.split(";") if a.strip()]
+            creators.extend(split_authors)
         date = str(next(g.objects(subject_of_interest, URIRef("http://purl.org/dc/elements/1.1/date")), None))
         title = str(next(g.objects(subject_of_interest, URIRef("http://purl.org/dc/elements/1.1/title")), None))
         start_page = str(next(g.objects(subject_of_interest, URIRef("http://purl.org/ontology/bibo/startPage")), None))
